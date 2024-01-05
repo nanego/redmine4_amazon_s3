@@ -13,17 +13,15 @@ module AmazonS3
       end
     end
 
-
-
     def initialize
       @config = {
-        :access_key_id      => nil,
-        :secret_access_key  => nil,
-        :bucket             => nil,
-        :region             => nil,
+        :access_key_id => nil,
+        :secret_access_key => nil,
+        :bucket => nil,
+        :region => nil,
         :attachments_folder => nil,
-        :thumbnails_folder  => nil,
-        :private            => false,
+        :thumbnails_folder => nil,
+        :private => false,
       }
     end
 
@@ -32,8 +30,8 @@ module AmazonS3
     end
 
     def load(path)
-      file = ERB.new( File.read(path) ).result
-      config = YAML::load( file )[Rails.env]
+      file = ERB.new(File.read(path)).result
+      config = YAML::load(file)[Rails.env]
 
       if config.nil?
         raise ConfigurationError.new("No amazon_s3 configuration found for environment '#{Rails.env}'")

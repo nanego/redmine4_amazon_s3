@@ -1,14 +1,14 @@
-AttachmentsController.class_eval do
+require 'attachments_controller'
 
-  before_action :find_thumbnail_attachment, :only => [:thumbnail]
-  skip_before_action :file_readable
+module AmazonS3::Patches::AttachmentsControllerConcern
+  extend ActiveSupport::Concern
 
   def show
     if @attachment.container.respond_to?(:attachments)
       @attachments = @attachment.container.attachments.to_a
       if index = @attachments.index(@attachment)
         @paginator = Redmine::Pagination::Paginator.new(
-          @attachments.size, 1, index+1
+          @attachments.size, 1, index + 1
         )
       end
     end
@@ -25,6 +25,8 @@ AttachmentsController.class_eval do
     elsif @attachment.is_text? && @attachment.filesize <= Setting.file_max_size_displayed.to_i.kilobyte
       @content = AmazonS3::Connection.get(@attachment.disk_filename_s3)
       render :action => 'file'
+    elsif @attachment.is_image?
+      render :action => 'image'
     else
       download
     end
@@ -37,6 +39,14 @@ AttachmentsController.class_eval do
     redirect_to(AmazonS3::Connection.object_url(@attachment.disk_filename_s3))
   end
 
+end
+
+class AttachmentsController < ApplicationController
+
+  include AmazonS3::Patches::AttachmentsControllerConcern
+
+  before_action :find_thumbnail_attachment, :only => [:thumbnail]
+
   private
 
   def find_editable_attachments
@@ -47,10 +57,14 @@ AttachmentsController.class_eval do
 
   def find_thumbnail_attachment
     update_thumb = 'true' == params[:update_thumb]
-    url          = @attachment.thumbnail_s3(update_thumb: update_thumb)
-    return render json: {src: url} if update_thumb
+    url = @attachment.thumbnail_s3(update_thumb: update_thumb)
+    return render json: { src: url } if update_thumb
     return if url.nil?
     redirect_to(url)
+  end
+
+  def file_readable
+    true
   end
 
 end

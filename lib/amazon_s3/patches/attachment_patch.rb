@@ -1,19 +1,27 @@
-Attachment.class_eval do
-  
-  attr_accessor :s3_access_key_id, :s3_secret_acces_key, :s3_bucket, :s3_bucket
-  after_validation :put_to_s3
-  after_create      :generate_thumbnail_s3
-  before_destroy   :delete_from_s3
+require "#{Rails.root}/app/models/attachment"
+
+module AmazonS3::Patches::AttachmentPatch
 
   def put_to_s3
     if @temp_file && (@temp_file.size > 0) && errors.blank?
-      self.disk_directory = disk_directory || target_directory
-      self.disk_filename  = Attachment.disk_filename(filename, disk_directory) if disk_filename.blank?
-      logger.debug("Uploading to #{disk_filename}")
-      AmazonS3::Connection.put(disk_filename_s3, filename, @temp_file, self.content_type)
-      self.digest = Time.now.to_i.to_s
+      self.disk_directory = target_directory
+      sha = Digest::SHA256.new
+      Attachment.create_diskfile(filename, disk_directory) do |f|
+        self.disk_filename = File.basename f.path
+        logger.info("Saving attachment '#{disk_filename_s3}' (#{@temp_file.size} bytes)") if logger
+        AmazonS3::Connection.put(disk_filename_s3, filename, @temp_file, self.content_type)
+      end
+      self.digest = sha.hexdigest
     end
-    @temp_file = nil # so that the model's original after_save block skips writing to the fs
+    @temp_file = nil
+
+    if content_type.blank? && filename.present?
+      self.content_type = Redmine::MimeType.of(filename)
+    end
+    # Don't save the content type if it's longer than the authorized length
+    if self.content_type && self.content_type.length > 255
+      self.content_type = nil
+    end
   end
 
   def delete_from_s3
@@ -38,8 +46,8 @@ Attachment.class_eval do
     else
       size = Setting.thumbnails_size.to_i
     end
-    size         = 100 unless size > 0
-    target       = "#{id}_#{digest}_#{size}.thumb"
+    size = 100 unless size > 0
+    target = "#{id}_#{digest}_#{size}.thumb"
     update_thumb = options[:update_thumb] || false
     begin
       AmazonS3::Thumbnail.get(self.disk_filename_s3, target, size, update_thumb)
@@ -58,5 +66,16 @@ Attachment.class_eval do
   def generate_thumbnail_s3
     thumbnail_s3(update_thumb: true)
   end
-  
+
+end
+
+Attachment.class_eval do
+
+  prepend AmazonS3::Patches::AttachmentPatch
+
+  attr_accessor :s3_access_key_id, :s3_secret_acces_key, :s3_bucket, :s3_bucket
+  after_validation :put_to_s3
+  after_create :generate_thumbnail_s3
+  before_destroy :delete_from_s3
+
 end
